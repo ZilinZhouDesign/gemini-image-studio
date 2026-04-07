@@ -1,4 +1,4 @@
-// jiekou.ai Gemini 3.1 Flash Image Edit API
+// jiekou.ai Gemini 3.1 Flash Image Text-to-Image API
 
 export type AspectRatio = '1:1' | '16:9' | '9:16';
 export type StylePreset =
@@ -28,7 +28,6 @@ export interface GenerateImageParams {
   prompt: string;
   aspectRatio?: AspectRatio;
   style?: StylePreset;
-  referenceImageBase64?: string;
 }
 
 export interface GeneratedImage {
@@ -44,6 +43,15 @@ function mapAspectToSize(ratio: AspectRatio): string {
   }
 }
 
+function mapAspectRatio(ratio: AspectRatio): string {
+  switch (ratio) {
+    case '1:1': return '1:1';
+    case '16:9': return '16:9';
+    case '9:16': return '9:16';
+    default: return '1:1';
+  }
+}
+
 export function enhancePrompt(prompt: string, style: StylePreset): string {
   const enhancement = styleEnhancements[style] || '';
   if (!enhancement) return prompt;
@@ -53,12 +61,7 @@ export function enhancePrompt(prompt: string, style: StylePreset): string {
 export async function generateImage(
   params: GenerateImageParams
 ): Promise<{ images: GeneratedImage[] }> {
-  const {
-    prompt,
-    aspectRatio = '1:1',
-    style,
-    referenceImageBase64,
-  } = params;
+  const { prompt, aspectRatio = '1:1', style } = params;
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -67,10 +70,12 @@ export async function generateImage(
 
   const enhancedPrompt = style ? enhancePrompt(prompt, style) : prompt;
   const size = mapAspectToSize(aspectRatio);
+  const aspect_ratio = mapAspectRatio(aspectRatio);
 
-  const requestBody: Record<string, unknown> = {
+  const requestBody = {
     prompt: enhancedPrompt,
     size,
+    aspect_ratio,
     google: {
       web_search: false,
       image_search: false,
@@ -78,11 +83,7 @@ export async function generateImage(
     output_format: 'image/png',
   };
 
-  if (referenceImageBase64) {
-    requestBody.image_base64 = referenceImageBase64;
-  }
-
-  const response = await fetch('https://api.jiekou.ai/v3/gemini-3.1-flash-image-edit', {
+  const response = await fetch('https://api.jiekou.ai/v3/gemini-3.1-flash-image-text-to-image', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
