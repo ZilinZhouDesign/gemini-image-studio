@@ -53,7 +53,6 @@ export async function POST(request: NextRequest) {
       aspectRatio: aspectRatio || '1:1',
       style,
       referenceImageBase64: mode === 'image-to-image' ? referenceImage : undefined,
-      person: true,
     });
 
     if (!result.images || result.images.length === 0) {
@@ -67,7 +66,7 @@ export async function POST(request: NextRequest) {
       status: 'success',
       message: '图片生成成功',
       images: result.images.map((img) => ({
-        url: img.bytes,
+        url: img.url,
         revisedPrompt: prompt,
       })),
     });

@@ -1,5 +1,4 @@
-// Gemini Imagen API - Direct REST API implementation
-// Based on Google AI Imagen API
+// jiekou.ai Gemini 3.1 Flash Image Edit API
 
 export type AspectRatio = '1:1' | '16:9' | '9:16';
 export type StylePreset =
@@ -15,47 +14,33 @@ export type StylePreset =
 // Style enhancement prompts
 const styleEnhancements: Record<StylePreset, string> = {
   cinematic:
-    'cinematic lighting, film grain, 8K, professional color grading, dramatic shadows, anamorphic lens flare, movie still quality',
-  anime:
-    'anime style, vibrant colors, detailed illustration, Studio Ghibli inspired, cel shaded, high quality anime artwork',
-  photorealistic:
-    'photorealistic, high detail, professional photography, DSLR quality, sharp focus, natural lighting, ultra realistic',
-  oil_painting:
-    'oil painting style, classical art, brushstroke texture, rich colors, museum quality, Renaissance inspired, thick impasto',
-  watercolor:
-    'watercolor painting style, soft edges, delicate washes, artistic technique, paper texture visible, ethereal quality',
-  cyberpunk:
-    'cyberpunk style, neon lights, futuristic city, holographic elements, rain-soaked streets, chrome details, dystopian',
-  ethereal:
-    'ethereal, dreamlike, soft focus, magical atmosphere, celestial light, mystical, fairytale quality, bokeh',
-  commercial:
-    'commercial photography, product shot, studio lighting, advertising quality, clean background, professional retouching, magazine cover',
+    'cinematic lighting, film grain, 8K, professional color grading, dramatic shadows',
+  anime: 'anime style, vibrant colors, detailed illustration, Studio Ghibli inspired',
+  photorealistic: 'photorealistic, high detail, professional photography, DSLR quality',
+  oil_painting: 'oil painting style, classical art, brushstroke texture, museum quality',
+  watercolor: 'watercolor painting style, soft edges, delicate washes, artistic technique',
+  cyberpunk: 'cyberpunk style, neon lights, futuristic city, holographic elements',
+  ethereal: 'ethereal, dreamlike, soft focus, magical atmosphere, celestial light',
+  commercial: 'commercial photography, product shot, studio lighting, advertising quality',
 };
 
 export interface GenerateImageParams {
   prompt: string;
-  model?: string;
   aspectRatio?: AspectRatio;
-  person?: boolean;
   style?: StylePreset;
   referenceImageBase64?: string;
 }
 
 export interface GeneratedImage {
-  bytes: string;
-  mimeType: string;
+  url: string;
 }
 
-function mapAspectRatio(ratio: AspectRatio): string {
+function mapAspectToSize(ratio: AspectRatio): string {
   switch (ratio) {
-    case '1:1':
-      return '1024x1024';
-    case '16:9':
-      return '1792x1024';
-    case '9:16':
-      return '1024x1792';
-    default:
-      return '1024x1024';
+    case '1:1': return '1K';
+    case '16:9': return '16K';
+    case '9:16': return '9K';
+    default: return '1K';
   }
 }
 
@@ -65,16 +50,12 @@ export function enhancePrompt(prompt: string, style: StylePreset): string {
   return `${prompt}. ${enhancement}`;
 }
 
-const API_BASE = 'https://generativelanguage.googleapis.com';
-
 export async function generateImage(
   params: GenerateImageParams
 ): Promise<{ images: GeneratedImage[] }> {
   const {
     prompt,
-    model = 'imagen-3.0-generate-002',
     aspectRatio = '1:1',
-    person = true,
     style,
     referenceImageBase64,
   } = params;
@@ -84,75 +65,44 @@ export async function generateImage(
     throw new Error('GEMINI_API_KEY environment variable is not set');
   }
 
-  // Enhance prompt with style
   const enhancedPrompt = style ? enhancePrompt(prompt, style) : prompt;
+  const size = mapAspectToSize(aspectRatio);
 
-  const outputDimensions = mapAspectRatio(aspectRatio);
-
-  let requestBody: Record<string, unknown>;
+  const requestBody: Record<string, unknown> = {
+    prompt: enhancedPrompt,
+    size,
+    google: {
+      web_search: false,
+      image_search: false,
+    },
+    output_format: 'image/png',
+  };
 
   if (referenceImageBase64) {
-    // Image-to-image mode - convert base64 to binary bytes
-    const base64Data = referenceImageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const imageBytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-
-    requestBody = {
-      prompt: enhancedPrompt,
-      image: {
-        imageBytes: Array.from(imageBytes),
-      },
-      outputConfig: {
-        numberOfImages: 1,
-        outputDimensions,
-        personGeneration: person ? 'allow' : 'donotallow',
-      },
-    };
-  } else {
-    // Text-to-image mode
-    requestBody = {
-      prompt: enhancedPrompt,
-      outputConfig: {
-        numberOfImages: 1,
-        outputDimensions,
-        personGeneration: person ? 'allow' : 'donotallow',
-      },
-    };
+    requestBody.image_base64 = referenceImageBase64;
   }
 
-  const url = `${API_BASE}/v1beta/${model}:generateImages?key=${apiKey}`;
-
-  const response = await fetch(url, {
+  const response = await fetch('https://api.jiekou.ai/v3/gemini-3.1-flash-image-edit', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    let errorMessage = `API request failed with status ${response.status}`;
-    try {
-      const errorJson = JSON.parse(errorText);
-      if (errorJson.error?.message) {
-        errorMessage = errorJson.error.message;
-      }
-    } catch {
-      // Use default error message
-    }
-    throw new Error(errorMessage);
+    throw new Error(`API request failed with status ${response.status}: ${errorText}`);
   }
 
   const data = await response.json();
 
-  const images: GeneratedImage[] =
-    data.generatedImages?.map((img: { image: { imageBytes?: string; bytes?: string; mimeType?: string } }) => {
-      const rawBytes = img.image.imageBytes || img.image.bytes || '';
-      return {
-        bytes: `data:${img.image.mimeType || 'image/png'};base64,${Buffer.from(rawBytes).toString('base64')}`,
-        mimeType: img.image.mimeType || 'image/png',
-      };
-    }) || [];
+  if (!data.image_urls || !Array.isArray(data.image_urls)) {
+    throw new Error('Invalid API response: missing image_urls');
+  }
 
-  return { images };
+  return {
+    images: data.image_urls.map((url: string) => ({ url })),
+  };
 }
