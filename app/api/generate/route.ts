@@ -52,7 +52,6 @@ export async function POST(request: NextRequest) {
       prompt: prompt.trim(),
       aspectRatio: aspectRatio || '1:1',
       style,
-      referenceImageBase64: mode === 'image-to-image' ? referenceImage : undefined,
     });
 
     if (!result.images || result.images.length === 0) {
